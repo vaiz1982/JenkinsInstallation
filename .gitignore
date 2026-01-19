@@ -1,0 +1,40 @@
+# Jenkins specific
+.jenkins/
+workspace/
+builds/
+logs/
+plugins/
+secrets/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+\#*\#
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# Sensitive files
+*.key
+*.pem
+*.cert
+*.secret
+credentials.xml
