@@ -1,311 +1,325 @@
 #!/bin/bash
-# Jenkins + Nginx + Security Installer for Ubuntu
-# Author: Auto-generated from troubleshooting session
-# Version: 2.0
-# Usage: sudo bash install-jenkins-secure.sh YOUR_ALLOWED_IP
+# Jenkins + Nginx + Security - ONE-SCRIPT FIX
+# Author: Fix-All-The-Things
+# Usage: sudo ./install_jenkins_fixed.sh
 
-set -e  # Exit on any error
+set -e
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-ALLOWED_IP=${1:-$(curl -s ifconfig.me)}  # Use provided IP or current IP
-JENKINS_PORT=8080
-NGINX_PORT=80
-SWAP_SIZE="2G"
-JAVA_MEMORY="-Xmx1024m -Xms512m -XX:+UseG1GC"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}    JENKINS + NGINX INSTALLER          ${NC}"
+echo -e "${BLUE}========================================${NC}"
 
-# Logging
-LOG_FILE="/tmp/jenkins-install-$(date +%Y%m%d-%H%M%S).log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+# Get server IP
+SERVER_IP=$(curl -s ifconfig.me)
+echo "Server IP: $SERVER_IP"
+echo ""
 
-print_section() {
-    echo -e "\n${BLUE}=== $1 ===${NC}"
-}
+# --------------------------------------------------
+# STEP 1: COMPLETE CLEANUP
+# --------------------------------------------------
+echo -e "${YELLOW}[1/7] Cleaning up existing installation...${NC}"
+systemctl stop jenkins 2>/dev/null || true
+systemctl disable jenkins 2>/dev/null || true
+systemctl stop nginx 2>/dev/null || true
 
-print_status() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
+# Remove Jenkins completely
+apt-get remove --purge -y jenkins 2>/dev/null || true
+apt-get autoremove -y 2>/dev/null || true
 
-print_warning() {
-    echo -e "${YELLOW}⚠  $1${NC}"
-}
+# Remove configuration files
+rm -rf /var/lib/jenkins 2>/dev/null || true
+rm -rf /var/cache/jenkins 2>/dev/null || true
+rm -rf /var/log/jenkins 2>/dev/null || true
+rm -f /etc/default/jenkins 2>/dev/null || true
+rm -f /etc/apt/sources.list.d/jenkins.list 2>/dev/null || true
+rm -f /usr/share/keyrings/jenkins* 2>/dev/null || true
 
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
+# Remove Nginx config
+rm -f /etc/nginx/sites-enabled/jenkins 2>/dev/null || true
+rm -f /etc/nginx/sites-available/jenkins 2>/dev/null || true
 
-check_root() {
-    if [ "$EUID" -ne 0 ]; then 
-        print_error "Please run as root (sudo)"
-        exit 1
-    fi
-}
+# Clean apt
+apt-get clean
+apt-get update -qq
 
-validate_ip() {
-    if [[ ! $ALLOWED_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]]; then
-        print_error "Invalid IP format: $ALLOWED_IP"
-        print_error "Use format: 192.168.1.1 or 192.168.1.1/32"
-        exit 1
-    fi
-}
+echo -e "${GREEN}✓ Cleanup complete${NC}"
+echo ""
 
-install_dependencies() {
-    print_section "Installing Dependencies"
-    
-    apt-get update -qq
-    apt-get install -y -qq \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        software-properties-common \
-        gnupg \
-        lsb-release
-    
-    print_status "Dependencies installed"
-}
+# --------------------------------------------------
+# STEP 2: INSTALL JAVA
+# --------------------------------------------------
+echo -e "${YELLOW}[2/7] Installing Java 17...${NC}"
+apt-get install -y openjdk-17-jre-headless
+java -version
+echo -e "${GREEN}✓ Java installed${NC}"
+echo ""
 
-setup_swap() {
-    print_section "Setting up Swap Memory"
-    
-    if [ -f /swapfile ]; then
-        print_warning "Swap file already exists, skipping"
-        return
-    fi
-    
-    fallocate -l $SWAP_SIZE /swapfile
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
-    sysctl vm.swappiness=10
-    sysctl vm.vfs_cache_pressure=50
-    
-    print_status "Swap memory configured ($SWAP_SIZE)"
-}
+# --------------------------------------------------
+# STEP 3: INSTALL JENKINS WITHOUT REPOSITORY ISSUES
+# --------------------------------------------------
+echo -e "${YELLOW}[3/7] Installing Jenkins...${NC}"
 
-install_java() {
-    print_section "Installing Java"
-    
-    apt-get install -y -qq openjdk-17-jre-headless
-    
-    # Verify installation
-    java_version=$(java -version 2>&1 | head -1 | awk -F '"' '{print $2}')
-    print_status "Java $java_version installed"
-}
+# Create a safe directory for download
+cd /tmp
 
-install_jenkins() {
-    print_section "Installing Jenkins"
-    
-    # Add Jenkins repository
-    curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | \
-        tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-    echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc]" \
-        https://pkg.jenkins.io/debian-stable binary/ | \
-        tee /etc/apt/sources.list.d/jenkins.list > /dev/null
-    
-    apt-get update -qq
-    apt-get install -y -qq jenkins
-    
-    # Configure Jenkins
-    cat > /etc/default/jenkins << EOF
-NAME=jenkins
-JAVA=/usr/bin/java
-JAVA_ARGS="-Djava.awt.headless=true $JAVA_MEMORY"
-JENKINS_ARGS="--webroot=/var/cache/jenkins/war --httpListenAddress=127.0.0.1 --httpPort=$JENKINS_PORT"
+# Remove any existing .deb files
+rm -f jenkins*.deb 2>/dev/null || true
+
+# Download the LATEST Jenkins LTS package
+echo "Downloading Jenkins package..."
+JENKINS_URL="https://get.jenkins.io/debian-stable/jenkins_2.440.3_all.deb"
+wget --tries=3 --timeout=30 -q "$JENKINS_URL" -O jenkins.deb
+
+# Check if download succeeded
+if [ ! -f jenkins.deb ]; then
+    echo -e "${RED}✗ Failed to download Jenkins${NC}"
+    echo "Trying alternative URL..."
+    wget -q "https://pkg.jenkins.io/debian-stable/binary/jenkins_2.440.3_all.deb" -O jenkins.deb
+fi
+
+if [ ! -f jenkins.deb ]; then
+    echo -e "${RED}✗ Jenkins download failed. Please check internet connection.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Jenkins package downloaded${NC}"
+
+# Install dependencies first (this prevents conflicts)
+echo "Installing dependencies..."
+apt-get install -y fontconfig daemon net-tools
+
+# Install Jenkins with non-interactive mode
+echo "Installing Jenkins package..."
+export DEBIAN_FRONTEND=noninteractive
+dpkg -i jenkins.deb 2>/dev/null || true
+
+# Fix any dependencies
+apt-get -f install -y
+
+# Verify installation
+if [ -f /usr/share/jenkins/jenkins.war ] || [ -f /usr/lib/jenkins/jenkins.war ]; then
+    echo -e "${GREEN}✓ Jenkins files installed${NC}"
+else
+    echo -e "${RED}✗ Jenkins installation failed${NC}"
+    echo "Trying one more method..."
+    apt-get install -y jenkins 2>/dev/null || true
+fi
+
+echo ""
+
+# --------------------------------------------------
+# STEP 4: CONFIGURE JENKINS
+# --------------------------------------------------
+echo -e "${YELLOW}[4/7] Configuring Jenkins...${NC}"
+
+# Backup original config if exists
+if [ -f /etc/default/jenkins ]; then
+    cp /etc/default/jenkins /etc/default/jenkins.backup
+fi
+
+# Create fresh Jenkins configuration
+cat > /etc/default/jenkins << 'EOF'
+# Jenkins default settings
+JENKINS_USER=jenkins
+JENKINS_GROUP=jenkins
+JENKINS_HOME=/var/lib/jenkins
+JAVA_ARGS="-Djava.awt.headless=true -Xmx1024m -Xms512m -XX:+UseG1GC"
+JENKINS_ARGS="--webroot=/var/cache/jenkins/war --httpListenAddress=127.0.0.1 --httpPort=8080"
 EOF
-    
-    # Pre-create config to skip wizard (optional)
-    mkdir -p /var/lib/jenkins
-    cat > /var/lib/jenkins/jenkins.install.InstallUtil.lastExecVersion << EOF
-2.0
-EOF
-    
-    print_status "Jenkins installed and configured"
-}
 
-install_nginx() {
-    print_section "Installing and Configuring Nginx"
-    
-    apt-get install -y -qq nginx
-    
-    # Remove default site
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # Create Jenkins reverse proxy config
-    cat > /etc/nginx/sites-available/jenkins << EOF
+# Set correct permissions
+chown root:root /etc/default/jenkins
+chmod 644 /etc/default/jenkins
+
+echo -e "${GREEN}✓ Jenkins configured${NC}"
+echo ""
+
+# --------------------------------------------------
+# STEP 5: INSTALL AND CONFIGURE NGINX
+# --------------------------------------------------
+echo -e "${YELLOW}[5/7] Installing and configuring Nginx...${NC}"
+apt-get install -y nginx
+
+# Remove default site
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+# Create Jenkins proxy configuration
+cat > /etc/nginx/sites-available/jenkins << 'EOF'
 server {
-    listen $NGINX_PORT default_server;
-    listen [::]:$NGINX_PORT default_server;
+    listen 80 default_server;
+    listen [::]:80 default_server;
     server_name _;
     
-    # Performance optimizations
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Performance
     client_max_body_size 100M;
     proxy_read_timeout 300s;
     proxy_connect_timeout 300s;
     proxy_send_timeout 300s;
     
     location / {
-        proxy_pass http://127.0.0.1:$JENKINS_PORT;
-        proxy_set_header Host \$host:\$server_port;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$host;
-        proxy_set_header X-Forwarded-Port \$server_port;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
         
         # WebSocket support
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         
         # Performance
         proxy_buffering off;
         proxy_request_buffering off;
-        proxy_max_temp_file_size 0;
     }
     
-    # Cache static assets
-    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
+    # Static files caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
-        proxy_pass http://127.0.0.1:$JENKINS_PORT;
-        proxy_set_header Host \$host;
+        proxy_pass http://127.0.0.1:8080;
     }
 }
 EOF
-    
-    # Enable site
-    ln -sf /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/
-    
-    # Test configuration
-    nginx -t
-    
-    print_status "Nginx installed and configured"
-}
 
-configure_firewall() {
-    print_section "Configuring Firewall"
-    
-    # Install UFW if not present
-    apt-get install -y -qq ufw
-    
-    # Reset and configure UFW
-    ufw --force disable
-    ufw --force reset
-    
-    ufw default deny incoming
-    ufw default allow outgoing
-    
-    # Allow SSH from allowed IP
-    ufw allow from $ALLOWED_IP to any port 22
-    
-    # Allow HTTP from allowed IP only
-    ufw allow from $ALLOWED_IP to any port $NGINX_PORT
-    
-    # Jenkins localhost access only
-    ufw allow from 127.0.0.1 to any port $JENKINS_PORT
-    ufw deny $JENKINS_PORT/tcp
-    
-    # Enable firewall
-    ufw --force enable
-    
-    print_status "Firewall configured. Allowing only IP: $ALLOWED_IP"
-}
+# Enable the site
+ln -sf /etc/nginx/sites-available/jenkins /etc/nginx/sites-enabled/
 
-start_services() {
-    print_section "Starting Services"
-    
-    systemctl daemon-reload
-    systemctl enable jenkins nginx
-    systemctl restart jenkins nginx
-    
-    # Wait for Jenkins to start
-    sleep 10
-    
-    print_status "Services started"
-}
+# Test Nginx configuration
+nginx -t
 
-generate_report() {
-    print_section "Installation Complete"
-    
-    SERVER_IP=$(curl -s ifconfig.me)
-    JENKINS_PASSWORD=""
-    
+echo -e "${GREEN}✓ Nginx configured${NC}"
+echo ""
+
+# --------------------------------------------------
+# STEP 6: CONFIGURE FIREWALL
+# --------------------------------------------------
+echo -e "${YELLOW}[6/7] Configuring firewall...${NC}"
+apt-get install -y ufw
+
+# Reset firewall
+echo "y" | ufw --force reset 2>/dev/null || true
+
+# Configure defaults
+ufw default deny incoming
+ufw default allow outgoing
+
+# Allow SSH from anywhere (temporarily, you can change this)
+ufw allow 22/tcp
+
+# Allow HTTP from anywhere (temporarily)
+ufw allow 80/tcp
+
+# Block direct Jenkins access
+ufw deny 8080/tcp
+
+# Enable firewall
+echo "y" | ufw --force enable
+
+echo -e "${GREEN}✓ Firewall configured${NC}"
+echo ""
+
+# --------------------------------------------------
+# STEP 7: START SERVICES
+# --------------------------------------------------
+echo -e "${YELLOW}[7/7] Starting services...${NC}"
+
+# Reload systemd
+systemctl daemon-reload
+
+# Start Jenkins
+systemctl start jenkins
+systemctl enable jenkins
+
+# Start Nginx
+systemctl start nginx
+systemctl enable nginx
+
+# Wait for Jenkins to start
+echo "Waiting for Jenkins to initialize..."
+sleep 15
+
+# Check if Jenkins is running
+if systemctl is-active --quiet jenkins; then
+    echo -e "${GREEN}✓ Jenkins is running${NC}"
+else
+    echo -e "${YELLOW}⚠ Jenkins service not active, checking...${NC}"
+    systemctl status jenkins --no-pager | head -20
+    echo "Trying to restart..."
+    systemctl restart jenkins
+    sleep 5
+fi
+
+# --------------------------------------------------
+# FINAL OUTPUT
+# --------------------------------------------------
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}         INSTALLATION COMPLETE!         ${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+echo -e "${GREEN}✅ Services Status:${NC}"
+echo "Jenkins: $(systemctl is-active jenkins)"
+echo "Nginx:   $(systemctl is-active nginx)"
+echo ""
+echo -e "${GREEN}🌐 Access URLs:${NC}"
+echo "Main URL:    http://$SERVER_IP/"
+echo "Jenkins URL: http://$SERVER_IP:8080/ (local only)"
+echo ""
+echo -e "${GREEN}🔑 Initial Admin Password:${NC}"
+
+# Try multiple times to get the password
+for i in {1..10}; do
     if [ -f /var/lib/jenkins/secrets/initialAdminPassword ]; then
-        JENKINS_PASSWORD=$(cat /var/lib/jenkins/secrets/initialAdminPassword)
+        PASSWORD=$(cat /var/lib/jenkins/secrets/initialAdminPassword)
+        echo "$PASSWORD"
+        echo "(File: /var/lib/jenkins/secrets/initialAdminPassword)"
+        break
+    else
+        if [ $i -eq 10 ]; then
+            echo "Password file not found yet. It may take a moment."
+            echo "Run: sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
+        fi
+        sleep 3
     fi
-    
-    cat << EOF
+done
 
-${GREEN}═══════════════════════════════════════════════════════════════════════════════${NC}
-${GREEN}                    JENKINS INSTALLATION COMPLETE!                            ${NC}
-${GREEN}═══════════════════════════════════════════════════════════════════════════════${NC}
+echo ""
+echo -e "${GREEN}🔧 Useful Commands:${NC}"
+echo "Restart Jenkins:  sudo systemctl restart jenkins"
+echo "Restart Nginx:    sudo systemctl restart nginx"
+echo "View Jenkins log: sudo tail -f /var/log/jenkins/jenkins.log"
+echo "Firewall status:  sudo ufw status"
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${GREEN}Access your Jenkins at: http://$SERVER_IP/${NC}"
+echo -e "${BLUE}========================================${NC}"
 
-${YELLOW}📊 CONFIGURATION SUMMARY:${NC}
-   Server IP:           $SERVER_IP
-   Allowed Access IP:   $ALLOWED_IP
-   Jenkins Port:        $JENKINS_PORT (localhost only)
-   Nginx Port:          $NGINX_PORT (public)
-   Java Memory:         $JAVA_MEMORY
-   Swap Size:           $SWAP_SIZE
+# Final check
+echo ""
+echo -e "${YELLOW}Final verification...${NC}"
+if curl -s -f http://localhost:8080/login > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Jenkins is accessible locally${NC}"
+else
+    echo -e "${YELLOW}⚠ Jenkins not responding locally. It may still be starting up.${NC}"
+fi
 
-${YELLOW}🌐 ACCESS URLs:${NC}
-   Jenkins via Nginx:   http://$SERVER_IP/
-   Direct Jenkins:      http://localhost:$JENKINS_PORT/ (local only)
-
-${YELLOW}🔐 SECURITY:${NC}
-   ✅ Port $NGINX_PORT open only to $ALLOWED_IP
-   ✅ Port $JENKINS_PORT blocked externally
-   ✅ SSH allowed only from $ALLOWED_IP
-   ✅ Jenkins bound to localhost only
-
-${YELLOW}🔑 INITIAL JENKINS PASSWORD:${NC}
-   $JENKINS_PASSWORD
-   (File: /var/lib/jenkins/secrets/initialAdminPassword)
-
-${YELLOW}🛠️  MANAGEMENT COMMANDS:${NC}
-   sudo systemctl restart jenkins nginx
-   sudo ufw status
-   sudo tail -f /var/log/jenkins/jenkins.log
-
-${YELLOW}📁 LOG FILE:${NC}
-   $LOG_FILE
-
-${GREEN}═══════════════════════════════════════════════════════════════════════════════${NC}
-${GREEN}      Access Jenkins at: http://$SERVER_IP/                                   ${NC}
-${GREEN}═══════════════════════════════════════════════════════════════════════════════${NC}
-EOF
-}
-
-# Main execution
-main() {
-    print_section "Jenkins Secure Installation Script"
-    echo "Starting installation at $(date)"
-    echo "Allowed IP: $ALLOWED_IP"
-    
-    check_root
-    validate_ip
-    
-    # Installation steps
-    install_dependencies
-    setup_swap
-    install_java
-    install_jenkins
-    install_nginx
-    configure_firewall
-    start_services
-    
-    # Final report
-    generate_report
-}
-
-# Run main function
-main "$@"
-
+if curl -s -f http://localhost > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Nginx is running${NC}"
+else
+    echo -e "${YELLOW}⚠ Nginx not responding. Check with: sudo systemctl status nginx${NC}"
+fi
