@@ -1,0 +1,106 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1">
+      <jobProperties/>
+      <triggers/>
+      <parameters>
+        <string>TAG</string>
+        <string>RUN_TESTS</string>
+      </parameters>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.BooleanParameterDefinition>
+          <name>RUN_TESTS</name>
+          <defaultValue>true</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>TAG</name>
+          <defaultValue>latest</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4254.v0c8e228524ea_">
+    <script>pipeline {
+  agent { label &apos;docker&apos; }
+  parameters {
+    booleanParam(name: &apos;RUN_TESTS&apos;, defaultValue: true)
+    string(name: &apos;TAG&apos;, defaultValue: &apos;latest&apos;)
+  }
+
+  environment {
+    DOCKER_REPO=&quot;anestesia01/goapp&quot;
+    PRJ_NAME=&quot;simple-go&quot;
+    GIT_URL=&quot;git@github.com:AnastasiyaGapochkina01/dos-29-cicd_01.git&quot;
+    DOCKER_TOKEN=credentials(&apos;docker_token&apos;)
+  }
+
+  stages {
+    stage(&apos;Clone repo&apos;) {
+      steps {
+        sh &quot;&quot;&quot;
+          if [ -d ${env.PRJ_NAME}/.git ]; then
+            echo &quot;Project repo exists&quot;
+            cd ${env.PRJ_NAME}
+            git pull
+          else
+            echo &quot;No project repo&quot;
+            git clone ${env.GIT_URL} ${env.PRJ_NAME}
+          fi
+        &quot;&quot;&quot;
+      }
+    }
+
+    stage(&apos;Build image&apos;) {
+      steps {
+        script {
+          sh &quot;&quot;&quot;
+            cd ${env.PRJ_NAME}
+            docker build -t ${env.DOCKER_REPO}:${params.TAG} ./
+          &quot;&quot;&quot;
+        }
+      }
+    }
+
+    stage(&apos;Run tests&apos;) {
+      when {
+        expression { params.RUN_TESTS == true }
+      }
+      steps {
+        script {
+          sh &quot;&quot;&quot;
+            cd ${env.PRJ_NAME}
+            go mod init simple-go
+            go test ./
+          &quot;&quot;&quot;
+        }
+      }
+    }
+
+    stage(&apos;Push image to docker hub&apos;) {
+      steps {
+        script {
+          sh &quot;&quot;&quot;
+            docker login -u anestesia01 -p ${env.DOCKER_TOKEN}
+            docker push ${env.DOCKER_REPO}:${params.TAG}
+            docker logout
+          &quot;&quot;&quot;
+        }
+      }
+    }
+  }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

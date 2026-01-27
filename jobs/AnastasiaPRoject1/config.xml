@@ -1,0 +1,214 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1">
+      <jobProperties/>
+      <triggers/>
+      <parameters>
+        <string>IMAGE_TAG</string>
+        <string>APP_NAME</string>
+        <string>DOCKERHUB_USERNAME</string>
+        <string>RUN_TESTS</string>
+      </parameters>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.BooleanParameterDefinition>
+          <name>RUN_TESTS</name>
+          <defaultValue>true</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>IMAGE_TAG</name>
+          <defaultValue>latest</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>DOCKERHUB_USERNAME</name>
+          <defaultValue>your-username</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>APP_NAME</name>
+          <defaultValue>go-server</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4254.v0c8e228524ea_">
+    <script>pipeline {
+    agent any
+    
+    parameters {
+        booleanParam(name: &apos;RUN_TESTS&apos;, defaultValue: true)
+        string(name: &apos;IMAGE_TAG&apos;, defaultValue: &apos;latest&apos;)
+        string(name: &apos;DOCKERHUB_USERNAME&apos;, defaultValue: &apos;your-username&apos;)
+        string(name: &apos;APP_NAME&apos;, defaultValue: &apos;go-server&apos;)
+    }
+    
+    environment {
+        PRJ_NAME = &quot;go-server&quot;
+        GIT_URL = &quot;https://github.com/AnastasiyaGapochkina01/dos-29-cicd_01.git&quot;
+        GOROOT = &quot;${WORKSPACE}/go&quot;
+        GOPATH = &quot;${WORKSPACE}/gopath&quot;
+        PATH = &quot;${GOROOT}/bin:${GOPATH}/bin:${env.PATH}&quot;
+        
+        DOCKERHUB_CREDENTIALS = credentials(&apos;dockerhub-credentials&apos;)
+        DOCKER_IMAGE = &quot;${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${params.IMAGE_TAG}&quot;
+    }
+    
+    stages {
+        stage(&apos;Build Docker Image&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Building Docker Image ===&quot;
+                        echo &quot;Image will be tagged as: ${env.DOCKER_IMAGE}&quot;
+                        
+                        cd ${env.PRJ_NAME}
+                        
+                        if [ ! -f &quot;Dockerfile&quot; ]; then
+                            echo &quot;Creating Dockerfile...&quot;
+                            cat &gt; Dockerfile &lt;&lt; EOF
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY go-server-app .
+EXPOSE 8080
+CMD [&quot;./go-server-app&quot;]
+EOF
+                            echo &quot;Dockerfile created:&quot;
+                            cat Dockerfile
+                        fi
+                        
+                        cp ../${env.PRJ_NAME}-app ./
+                        
+                        docker build -t ${env.DOCKER_IMAGE} .
+                        
+                        echo &quot;✅ Docker image built locally&quot;
+                        docker images | grep ${params.APP_NAME}
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        
+        stage(&apos;Push to DockerHub&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Pushing to DockerHub ===&quot;
+                        
+                        echo &quot;${env.DOCKERHUB_CREDENTIALS_PSW}&quot; | docker login -u &quot;${env.DOCKERHUB_CREDENTIALS_USR}&quot; --password-stdin
+                        
+                        docker push ${env.DOCKER_IMAGE}
+                        
+                        echo &quot;✅ Image pushed to DockerHub: ${env.DOCKER_IMAGE}&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        
+        stage(&apos;Create Second Artifact&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Creating Second Docker Artifact ===&quot;
+                        
+                        docker tag ${env.DOCKER_IMAGE} ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${BUILD_NUMBER}
+                        docker push ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${BUILD_NUMBER}
+                        
+                        echo &quot;✅ Second artifact created: ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${BUILD_NUMBER}&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        
+        stage(&apos;Create Third Artifact&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Creating Third Docker Artifact ===&quot;
+                        
+                        docker tag ${env.DOCKER_IMAGE} ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:production
+                        docker push ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:production
+                        
+                        echo &quot;✅ Third artifact created: ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:production&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        
+        stage(&apos;Create Multiple Version Tags&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Creating Multiple Version Tags ===&quot;
+                        
+                        docker tag ${env.DOCKER_IMAGE} ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:stable
+                        docker tag ${env.DOCKER_IMAGE} ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:v1.0.0-${BUILD_NUMBER}
+                        
+                        docker push ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:stable
+                        docker push ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:v1.0.0-${BUILD_NUMBER}
+                        
+                        echo &quot;✅ Additional artifacts created:&quot;
+                        echo &quot;- ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:stable&quot;
+                        echo &quot;- ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:v1.0.0-${BUILD_NUMBER}&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        
+        stage(&apos;Cleanup Docker Images&apos;) {
+            steps {
+                script {
+                    sh &quot;&quot;&quot;
+                        echo &quot;=== Cleaning up local Docker images ===&quot;
+                        
+                        docker logout
+                        
+                        docker rmi ${env.DOCKER_IMAGE} || true
+                        docker rmi ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${BUILD_NUMBER} || true
+                        docker rmi ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:production || true
+                        docker rmi ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:stable || true
+                        docker rmi ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:v1.0.0-${BUILD_NUMBER} || true
+                        
+                        echo &quot;✅ Local Docker images cleaned up&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo &quot;&quot;
+            echo &quot;=== PIPELINE COMPLETED ===&quot;
+            echo &quot;🎯 Artifacts created on DockerHub:&quot;
+            echo &quot;1. ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${params.IMAGE_TAG}&quot;
+            echo &quot;2. ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:${BUILD_NUMBER}&quot;
+            echo &quot;3. ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:production&quot;
+            echo &quot;4. ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:stable&quot;
+            echo &quot;5. ${params.DOCKERHUB_USERNAME}/${params.APP_NAME}:v1.0.0-${BUILD_NUMBER}&quot;
+            echo &quot;&quot;
+            echo &quot;📦 DockerHub URL: https://hub.docker.com/r/${params.DOCKERHUB_USERNAME}/${params.APP_NAME}/tags&quot;
+        }
+        success {
+            echo &quot;✅ Pipeline completed successfully!&quot;
+            echo &quot;✅ 5 Docker artifacts pushed to DockerHub&quot;
+        }
+        failure {
+            echo &quot;❌ Pipeline failed!&quot;
+        }
+    }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

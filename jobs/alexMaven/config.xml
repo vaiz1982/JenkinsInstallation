@@ -1,0 +1,50 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4254.v0c8e228524ea_">
+    <script>pipeline {
+    agent any
+
+    stages {
+        stage(&apos;Install Maven&apos;) {
+            steps {
+                sh &apos;&apos;&apos;
+                    cd $WORKSPACE
+                    wget --no-check-certificate https://archive.apache.org/dist/maven/maven-3/3.8.8/binaries/apache-maven-3.8.8-bin.tar.gz
+                    tar -xzf apache-maven-3.8.8-bin.tar.gz
+                    rm apache-maven-3.8.8-bin.tar.gz
+                &apos;&apos;&apos;
+            }
+        }
+        stage(&apos;Build&apos;) {
+            steps {
+                git &apos;https://github.com/vaiz1982/my_Maven_Project_1.2.git&apos;
+                sh &apos;$WORKSPACE/apache-maven-3.8.8/bin/mvn -Dmaven.test.failure.ignore=true clean package&apos;
+            }
+            post {
+                success {
+                    // Skip junit since there are no test results
+                    // Just archive the artifact
+                    archiveArtifacts &apos;target/*.jar&apos;
+                    echo &apos;Build successful! Artifact archived.&apos;
+                }
+            }
+        }
+    }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
