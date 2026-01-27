@@ -38,3 +38,23 @@ Thumbs.db
 *.cert
 *.secret
 credentials.xml
+
+# Jenkins config files (add these)
+config.xml
+hudson.*.xml
+jenkins.*.xml
+org.*.xml
+queue.xml
+nodeMonitors.xml
+
+# Job build artifacts
+jobs/*/builds/
+jobs/*/workspace/
+jobs/*/last*
+jobs/*/next*
+jobs/*/*.log
+jobs/*/config.xml.bak
+
+# Plugin files
+*.jpi
+*.hpi
