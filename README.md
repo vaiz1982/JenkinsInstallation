@@ -70,6 +70,11 @@ git remote add origin https://github.com/your-username/jenkins-install.git
 git push -u origin main
 
 
+git branch
+git remote -v
+
+
+
 
 
 
