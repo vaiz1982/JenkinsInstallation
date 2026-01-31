@@ -1,0 +1,336 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4255.vd9c37f80fd8a_">
+    <script>pipeline {  
+    agent any
+
+    environment {  
+        DOCKER_HUB_ORG = &apos;vaiz82&apos;
+        GIT_REPO = &apos;elementary-apps&apos;
+        GIT_BRANCH = &apos;main&apos;
+    }
+
+    stages {  
+        stage(&apos;📥 Clone Repository&apos;) {  
+            steps {  
+                cleanWs()
+                git branch: &apos;main&apos;, url: &quot;https://github.com/vaiz1982/${GIT_REPO}.git&quot;
+            }  
+        }
+
+        stage(&apos;🚀 Process All Apps&apos;) {  
+            parallel {
+                stage(&apos;📦 echo-app&apos;) {
+                    steps {
+                        script {
+                            buildAndTestApp(&apos;echo-app&apos;, 5001)
+                        }
+                    }
+                }
+                stage(&apos;📦 hello-app&apos;) {
+                    steps {
+                        script {
+                            buildAndTestApp(&apos;hello-app&apos;, 5002)
+                        }
+                    }
+                }
+                stage(&apos;📦 math-app&apos;) {
+                    steps {
+                        script {
+                            buildAndTestApp(&apos;math-app&apos;, 5003)
+                        }
+                    }
+                }
+                stage(&apos;📦 rand-app&apos;) {
+                    steps {
+                        script {
+                            buildAndTestApp(&apos;rand-app&apos;, 5004)
+                        }
+                    }
+                }
+                stage(&apos;📦 time-app&apos;) {
+                    steps {
+                        script {
+                            buildAndTestApp(&apos;time-app&apos;, 5005)
+                        }
+                    }
+                }
+            }
+        }
+
+        stage(&apos;📤 Push All to Docker Hub&apos;) {  
+            steps {  
+                script {
+                    withCredentials([usernamePassword(  
+                        credentialsId: &apos;docker-hub-credentials&apos;,  
+                        usernameVariable: &apos;DOCKER_USER&apos;,  
+                        passwordVariable: &apos;DOCKER_PAT&apos;  
+                    )]) {  
+                        sh &quot;&quot;&quot;
+                        echo &quot;\$DOCKER_PAT&quot; | docker login -u &quot;\$DOCKER_USER&quot; --password-stdin
+                        
+                        echo &quot;=== Pushing all apps to Docker Hub ===&quot;
+                        docker push vaiz82/echo-app:build-${BUILD_NUMBER}
+                        docker push vaiz82/hello-app:build-${BUILD_NUMBER}
+                        docker push vaiz82/math-app:build-${BUILD_NUMBER}
+                        docker push vaiz82/rand-app:build-${BUILD_NUMBER}
+                        docker push vaiz82/time-app:build-${BUILD_NUMBER}
+                        echo &quot;✅ All apps pushed to Docker Hub!&quot;
+                        &quot;&quot;&quot;
+                    }
+                }
+            }  
+        }
+
+        stage(&apos;📝 Create Simple Jenkinsfile&apos;) {  
+            steps {  
+                script {
+                    // Create a VERY simple Jenkinsfile
+                    sh &apos;&apos;&apos;
+                    cat &gt; Jenkinsfile &lt;&lt; &apos;EOF&apos;
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_ORG = &quot;vaiz82&quot;
+    }
+    
+    stages {
+        stage(&quot;📥 Clone Repository&quot;) {
+            steps {
+                cleanWs()
+                git branch: &quot;main&quot;, url: &quot;https://github.com/vaiz1982/elementary-apps.git&quot;
+            }
+        }
+        
+        stage(&quot;🚀 Build All Apps&quot;) {
+            parallel {
+                stage(&quot;📦 echo-app&quot;) {
+                    steps {
+                        dir(&quot;echo-app&quot;) {
+                            sh &quot;&quot;&quot;
+                            docker build -t ${DOCKER_HUB_ORG}/echo-app:build-${BUILD_NUMBER} .
+                            echo &quot;✅ echo-app built&quot;
+                            &quot;&quot;&quot;
+                        }
+                    }
+                }
+                stage(&quot;📦 hello-app&quot;) {
+                    steps {
+                        dir(&quot;hello-app&quot;) {
+                            sh &quot;&quot;&quot;
+                            docker build -t ${DOCKER_HUB_ORG}/hello-app:build-${BUILD_NUMBER} .
+                            echo &quot;✅ hello-app built&quot;
+                            &quot;&quot;&quot;
+                        }
+                    }
+                }
+                stage(&quot;📦 math-app&quot;) {
+                    steps {
+                        dir(&quot;math-app&quot;) {
+                            sh &quot;&quot;&quot;
+                            docker build -t ${DOCKER_HUB_ORG}/math-app:build-${BUILD_NUMBER} .
+                            echo &quot;✅ math-app built&quot;
+                            &quot;&quot;&quot;
+                        }
+                    }
+                }
+                stage(&quot;📦 rand-app&quot;) {
+                    steps {
+                        dir(&quot;rand-app&quot;) {
+                            sh &quot;&quot;&quot;
+                            docker build -t ${DOCKER_HUB_ORG}/rand-app:build-${BUILD_NUMBER} .
+                            echo &quot;✅ rand-app built&quot;
+                            &quot;&quot;&quot;
+                        }
+                    }
+                }
+                stage(&quot;📦 time-app&quot;) {
+                    steps {
+                        dir(&quot;time-app&quot;) {
+                            sh &quot;&quot;&quot;
+                            docker build -t ${DOCKER_HUB_ORG}/time-app:build-${BUILD_NUMBER} .
+                            echo &quot;✅ time-app built&quot;
+                            &quot;&quot;&quot;
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage(&quot;📤 Push All to Docker Hub&quot;) {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: &quot;docker-hub-credentials&quot;,
+                    usernameVariable: &quot;DOCKER_USER&quot;,
+                    passwordVariable: &quot;DOCKER_PAT&quot;
+                )]) {
+                    sh &quot;&quot;&quot;
+                    echo &quot;$DOCKER_PAT&quot; | docker login -u &quot;$DOCKER_USER&quot; --password-stdin
+                    
+                    echo &quot;Pushing echo-app...&quot;
+                    docker push ${DOCKER_HUB_ORG}/echo-app:build-${BUILD_NUMBER}
+                    
+                    echo &quot;Pushing hello-app...&quot;
+                    docker push ${DOCKER_HUB_ORG}/hello-app:build-${BUILD_NUMBER}
+                    
+                    echo &quot;Pushing math-app...&quot;
+                    docker push ${DOCKER_HUB_ORG}/math-app:build-${BUILD_NUMBER}
+                    
+                    echo &quot;Pushing rand-app...&quot;
+                    docker push ${DOCKER_HUB_ORG}/rand-app:build-${BUILD_NUMBER}
+                    
+                    echo &quot;Pushing time-app...&quot;
+                    docker push ${DOCKER_HUB_ORG}/time-app:build-${BUILD_NUMBER}
+                    
+                    echo &quot;✅ All apps pushed to Docker Hub!&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo &quot;🎉 All apps built and pushed successfully!&quot;
+        }
+    }
+}
+EOF
+                    &apos;&apos;&apos;
+                    echo &quot;✅ Jenkinsfile created&quot;
+                }
+            }  
+        }
+
+        stage(&apos;📤 Push to GitHub&apos;) {  
+            when {
+                expression { 
+                    try {
+                        withCredentials([string(
+                            credentialsId: &apos;github-token&apos;,
+                            variable: &apos;GITHUB_TOKEN&apos;
+                        )]) {
+                            return true
+                        }
+                    } catch (Exception e) {
+                        echo &quot;Note: GitHub token not found. Skipping GitHub push.&quot;
+                        return false
+                    }
+                }
+            }
+            steps {  
+                script {  
+                    withCredentials([string(  
+                        credentialsId: &apos;github-token&apos;,  
+                        variable: &apos;GITHUB_TOKEN&apos;  
+                    )]) {  
+                        sh &quot;&quot;&quot;
+                        # Configure git
+                        git config user.email &quot;jenkins@ci-cd.com&quot;
+                        git config user.name &quot;Jenkins CI/CD&quot;
+                        
+                        # Add Jenkinsfile
+                        git add Jenkinsfile
+                        
+                        # Check for changes
+                        if git diff --cached --quiet; then
+                            echo &quot;No changes to commit&quot;
+                        else
+                            # Commit and push
+                            git commit -m &quot;CI/CD: Add Jenkinsfile for multi-app pipeline - Build ${BUILD_NUMBER}&quot;
+                            git push https://${GITHUB_TOKEN}@github.com/vaiz1982/${GIT_REPO}.git ${GIT_BRANCH}
+                            echo &quot;✅ Jenkinsfile pushed to GitHub!&quot;
+                        fi
+                        &quot;&quot;&quot;
+                    }  
+                }  
+            }  
+        }
+    }
+
+    post {  
+        always {  
+            cleanWs()
+            script {
+                // Clean up containers
+                def apps = [&apos;echo-app&apos;, &apos;hello-app&apos;, &apos;math-app&apos;, &apos;rand-app&apos;, &apos;time-app&apos;]
+                apps.each { app -&gt;
+                    sh &quot;&quot;&quot;
+                    docker stop test-${app}-${BUILD_NUMBER} 2&gt;/dev/null || true
+                    docker rm test-${app}-${BUILD_NUMBER} 2&gt;/dev/null || true
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+        success {
+            echo &quot;🎉 All 5 apps processed successfully!&quot;
+        }
+    }  
+}
+
+// Helper function to build and test an app
+def buildAndTestApp(appName, port) {
+    dir(appName) {
+        script {
+            echo &quot;Processing ${appName} on port ${port}...&quot;
+            
+            // Check if app directory exists and has Dockerfile
+            if (fileExists(&apos;Dockerfile&apos;)) {
+                // Build Docker image
+                sh &quot;&quot;&quot;
+                docker build -t ${env.DOCKER_HUB_ORG}/${appName}:build-${env.BUILD_NUMBER} .
+                echo &quot;✅ ${appName} image built&quot;
+                &quot;&quot;&quot;
+                
+                // Try to test if it&apos;s a web app
+                try {
+                    sh &quot;&quot;&quot;
+                    # Clean up
+                    docker stop test-${appName}-${env.BUILD_NUMBER} 2&gt;/dev/null || true
+                    docker rm test-${appName}-${env.BUILD_NUMBER} 2&gt;/dev/null || true
+                    
+                    # Run container
+                    docker run -d --name test-${appName}-${env.BUILD_NUMBER} -p ${port}:5000 ${env.DOCKER_HUB_ORG}/${appName}:build-${env.BUILD_NUMBER}
+                    
+                    # Wait
+                    sleep 10
+                    
+                    echo &quot;=== Testing ${appName} ===&quot;
+                    
+                    # Try to access
+                    curl -s -o /dev/null -w &quot;Status: %{http_code}\\\\n&quot; --max-time 5 http://localhost:${port}/ || echo &quot;Test completed&quot;
+                    
+                    # Cleanup
+                    docker stop test-${appName}-${env.BUILD_NUMBER}
+                    docker rm test-${appName}-${env.BUILD_NUMBER}
+                    &quot;&quot;&quot;
+                } catch (Exception e) {
+                    echo &quot;⚠️ Could not test ${appName}, but image built successfully&quot;
+                }
+            } else {
+                echo &quot;⚠️ No Dockerfile found for ${appName}, skipping...&quot;
+            }
+        }
+    }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>

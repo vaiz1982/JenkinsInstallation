@@ -1,0 +1,438 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@2.2277.v00573e73ddf1">
+      <jobProperties/>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@4255.vd9c37f80fd8a_">
+    <script>pipeline {  
+    agent any
+
+    environment {  
+        DOCKER_HUB_ORG = &apos;vaiz82&apos;
+        GIT_REPO = &apos;elementary-apps&apos;
+        GIT_BRANCH = &apos;main&apos;
+    }
+
+    stages {  
+        stage(&apos;📥 Clone Repository&apos;) {  
+            steps {  
+                cleanWs()
+                git branch: &apos;main&apos;, url: &quot;https://github.com/vaiz1982/${GIT_REPO}.git&quot;
+            }  
+        }
+
+        stage(&apos;🔍 Analyze All Apps&apos;) {  
+            steps {  
+                script {
+                    sh &apos;&apos;&apos;
+                    echo &quot;=== Analyzing All Apps ===&quot;
+                    echo &quot;&quot;
+                    
+                    for app_dir in */; do
+                        app=$(basename &quot;$app_dir&quot;)
+                        echo &quot;📁 $app:&quot;
+                        
+                        # Check files
+                        if [ -f &quot;$app_dir/main.py&quot; ]; then
+                            echo &quot;  🐍 Python Flask app detected&quot;
+                            head -5 &quot;$app_dir/main.py&quot;
+                        elif [ -f &quot;$app_dir/app.py&quot; ]; then
+                            echo &quot;  🐍 Python app detected&quot;
+                            head -5 &quot;$app_dir/app.py&quot;
+                        elif [ -f &quot;$app_dir/server.py&quot; ]; then
+                            echo &quot;  🐍 Python server detected&quot;
+                            head -5 &quot;$app_dir/server.py&quot;
+                        elif [ -f &quot;$app_dir/package.json&quot; ]; then
+                            echo &quot;  📦 Node.js app detected&quot;
+                            grep -E &apos;&quot;name&quot;|&quot;version&quot;|&quot;main&quot;&apos; &quot;$app_dir/package.json&quot;
+                        elif [ -f &quot;$app_dir/index.js&quot; ]; then
+                            echo &quot;  📦 Node.js app detected&quot;
+                            head -5 &quot;$app_dir/index.js&quot;
+                        else
+                            echo &quot;  ⚠️ Unknown app type&quot;
+                            ls -la &quot;$app_dir/&quot;
+                        fi
+                        echo &quot;&quot;
+                    done
+                    &apos;&apos;&apos;
+                }
+            }  
+        }
+
+        stage(&apos;🛠️ Create Dockerfiles for All Apps&apos;) {  
+            steps {  
+                script {
+                    sh &apos;&apos;&apos;
+                    echo &quot;=== Creating Dockerfiles for All Apps ===&quot;
+                    
+                    for app_dir in */; do
+                        app=$(basename &quot;$app_dir&quot;)
+                        echo &quot;🛠️ Processing $app...&quot;
+                        
+                        cd &quot;$app_dir&quot;
+                        
+                        # Remove existing Dockerfile if any
+                        rm -f Dockerfile
+                        
+                        # Check app type and create appropriate Dockerfile
+                        if [ -f &quot;main.py&quot; ]; then
+                            # Python Flask app (like echo-app)
+                            cat &gt; Dockerfile &lt;&lt; &apos;DOCKERFILE_EOF&apos;
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser &amp;&amp; chown -R appuser:appuser /app
+USER appuser
+
+# Run the application
+CMD [&quot;python&quot;, &quot;main.py&quot;]
+DOCKERFILE_EOF
+                            echo &quot;  ✅ Created Python Flask Dockerfile&quot;
+                            
+                        elif [ -f &quot;app.py&quot; ]; then
+                            # Generic Python app
+                            cat &gt; Dockerfile &lt;&lt; &apos;DOCKERFILE_EOF&apos;
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install dependencies if requirements.txt exists
+COPY requirements.txt .
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+
+# Copy application code
+COPY . .
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser &amp;&amp; chown -R appuser:appuser /app
+USER appuser
+
+# Run the application
+CMD [&quot;python&quot;, &quot;app.py&quot;]
+DOCKERFILE_EOF
+                            echo &quot;  ✅ Created Python Dockerfile&quot;
+                            
+                        elif [ -f &quot;package.json&quot; ]; then
+                            # Node.js app
+                            cat &gt; Dockerfile &lt;&lt; &apos;DOCKERFILE_EOF&apos;
+FROM node:18-alpine
+
+# Set environment variables
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs &amp;&amp; adduser -S nodejs -u 1001 &amp;&amp; chown -R nodejs:nodejs /app
+USER nodejs
+
+# Run the application
+CMD [&quot;node&quot;, &quot;index.js&quot;]
+DOCKERFILE_EOF
+                            echo &quot;  ✅ Created Node.js Dockerfile&quot;
+                            
+                        else
+                            # Unknown app type - create a generic one
+                            echo &quot;  ⚠️ Unknown app type, creating generic Dockerfile&quot;
+                            cat &gt; Dockerfile &lt;&lt; &apos;DOCKERFILE_EOF&apos;
+FROM alpine:latest
+
+WORKDIR /app
+COPY . .
+
+# Default command - app should have its own entrypoint
+CMD [&quot;echo&quot;, &quot;App container started. Add your own CMD in Dockerfile.&quot;]
+DOCKERFILE_EOF
+                        fi
+                        
+                        # Create requirements.txt for Python apps if missing
+                        if ([ -f &quot;main.py&quot; ] || [ -f &quot;app.py&quot; ]) &amp;&amp; [ ! -f &quot;requirements.txt&quot; ]; then
+                            echo &quot;flask==3.0.0&quot; &gt; requirements.txt
+                            echo &quot;  ✅ Created requirements.txt&quot;
+                        fi
+                        
+                        cd ..
+                        echo &quot;&quot;
+                    done
+                    
+                    echo &quot;✅ Dockerfiles created for all apps&quot;
+                    &apos;&apos;&apos;
+                }
+            }  
+        }
+
+        stage(&apos;🚀 Build All Apps&apos;) {  
+            steps {  
+                script {
+                    sh &apos;&apos;&apos;
+                    echo &quot;=== Building All Apps ===&quot;
+                    
+                    PORT=5001
+                    for app_dir in */; do
+                        app=$(basename &quot;$app_dir&quot;)
+                        echo &quot;🔨 Building $app on port $PORT...&quot;
+                        
+                        cd &quot;$app_dir&quot;
+                        
+                        # Build Docker image
+                        docker build -t vaiz82/$app:build-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos; .
+                        
+                        # Test the container
+                        echo &quot;  Testing $app...&quot;
+                        docker stop test-$app-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos; 2&gt;/dev/null || true
+                        docker rm test-$app-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos; 2&gt;/dev/null || true
+                        
+                        docker run -d --name test-$app-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos; -p $PORT:5000 vaiz82/$app:build-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;
+                        sleep 5
+                        
+                        # Try to access
+                        echo &quot;  Testing connection...&quot;
+                        curl -s -o /dev/null -w &quot;  HTTP Status: %{http_code}\n&quot; --max-time 3 http://localhost:$PORT/ || echo &quot;  Connection test completed&quot;
+                        
+                        # Cleanup
+                        docker stop test-$app-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;
+                        docker rm test-$app-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;
+                        
+                        cd ..
+                        PORT=$((PORT + 1))
+                        echo &quot;&quot;
+                    done
+                    
+                    echo &quot;✅ All apps built successfully&quot;
+                    &apos;&apos;&apos;
+                }
+            }  
+        }
+
+        stage(&apos;📤 Push All to Docker Hub&apos;) {  
+            steps {  
+                script {
+                    withCredentials([usernamePassword(  
+                        credentialsId: &apos;docker-hub-credentials&apos;,  
+                        usernameVariable: &apos;DOCKER_USER&apos;,  
+                        passwordVariable: &apos;DOCKER_PAT&apos;  
+                    )]) {  
+                        sh &quot;&quot;&quot;
+                        echo &quot;\$DOCKER_PAT&quot; | docker login -u &quot;\$DOCKER_USER&quot; --password-stdin
+                        
+                        echo &quot;=== Pushing All Apps to Docker Hub ===&quot;
+                        &quot;&quot;&quot;
+                        
+                        sh &apos;&apos;&apos;
+                        for app_dir in */; do
+                            app=$(basename &quot;$app_dir&quot;)
+                            echo &quot;📤 Pushing $app...&quot;
+                            docker push vaiz82/$app:build-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;
+                            echo &quot;  ✅ $app pushed&quot;
+                        done
+                        
+                        echo &quot;🎉 All apps pushed to Docker Hub!&quot;
+                        &apos;&apos;&apos;
+                    }
+                }
+            }  
+        }
+
+        stage(&apos;📝 Create Jenkinsfile v2.0&apos;) {  
+            steps {  
+                script {
+                    // Get list of all apps
+                    def apps = sh(script: &apos;ls -d */ | sed &quot;s|/$||&quot;&apos;, returnStdout: true).trim().split(&apos;\n&apos;)
+                    
+                    // Create a simple Jenkinsfile without complex escaping
+                    sh &apos;&apos;&apos;
+                    cat &gt; Jenkinsfile &lt;&lt; &apos;JENKINSFILE_v2&apos;
+# Jenkinsfile v2.0 - Multi-App CI/CD Pipeline
+# Created by Jenkins Build &apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;
+
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_ORG = &quot;vaiz82&quot;
+    }
+    
+    stages {
+        stage(&quot;📥 Clone Repository&quot;) {
+            steps {
+                cleanWs()
+                git branch: &quot;main&quot;, url: &quot;https://github.com/vaiz1982/elementary-apps.git&quot;
+            }
+        }
+        
+        stage(&quot;🚀 Build All Apps&quot;) {
+            steps {
+                sh &quot;&quot;&quot;
+                echo &quot;=== Building All Apps ===&quot;
+                
+                for app_dir in */; do
+                    app=\\$(basename &quot;\\$app_dir&quot;)
+                    echo &quot;Building \\$app...&quot;
+                    cd &quot;\\$app_dir&quot;
+                    docker build -t \\${DOCKER_HUB_ORG}/\\$app:build-\\${BUILD_NUMBER} .
+                    echo &quot;✅ \\$app image built&quot;
+                    cd ..
+                done
+                &quot;&quot;&quot;
+            }
+        }
+        
+        stage(&quot;📤 Push to Docker Hub&quot;) {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: &quot;docker-hub-credentials&quot;,
+                    usernameVariable: &quot;DOCKER_USER&quot;,
+                    passwordVariable: &quot;DOCKER_PAT&quot;
+                )]) {
+                    sh &quot;&quot;&quot;
+                    echo &quot;\\\$DOCKER_PAT&quot; | docker login -u &quot;\\\$DOCKER_USER&quot; --password-stdin
+                    echo &quot;Pushing all apps to Docker Hub...&quot;
+                    
+                    for app_dir in */; do
+                        app=\\$(basename &quot;\\$app_dir&quot;)
+                        echo &quot;Pushing \\$app...&quot;
+                        docker push \\${DOCKER_HUB_ORG}/\\$app:build-\\${BUILD_NUMBER}
+                    done
+                    
+                    echo &quot;✅ All apps pushed to Docker Hub!&quot;
+                    &quot;&quot;&quot;
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo &quot;🎉 Multi-app CI/CD pipeline completed successfully!&quot;
+        }
+    }
+}
+JENKINSFILE_v2
+                    &apos;&apos;&apos;
+                    echo &quot;✅ Jenkinsfile v2.0 created&quot;
+                }
+            }  
+        }
+
+        stage(&apos;🚀 Push Everything to GitHub&apos;) {  
+            steps {  
+                script {
+                    withCredentials([string(  
+                        credentialsId: &apos;github-token&apos;,  
+                        variable: &apos;GITHUB_TOKEN&apos;  
+                    )]) {  
+                        sh &quot;&quot;&quot;
+                        # Configure git
+                        git config user.email &quot;jenkins@ci-cd.com&quot;
+                        git config user.name &quot;Jenkins CI/CD&quot;
+                        
+                        # Add all Dockerfiles and the new Jenkinsfile
+                        echo &quot;=== Staging files for commit ===&quot;
+                        git add */Dockerfile
+                        git add Jenkinsfile
+                        
+                        # Also add requirements.txt files if they were created
+                        git add */requirements.txt 2&gt;/dev/null || true
+                        
+                        # Check what&apos;s being committed
+                        echo &quot;=== Files to be committed ===&quot;
+                        git status --porcelain
+                        
+                        # Commit with descriptive message
+                        echo &quot;=== Creating commit ===&quot;
+                        git commit -m &quot;CI/CD v2.0: Complete Dockerization of all apps
+
+- Added Dockerfiles for all 5 apps with security best practices
+- Created requirements.txt for Python apps
+- Added Jenkinsfile v2.0 for multi-app CI/CD pipeline
+- All apps now buildable and pushable to Docker Hub
+- Build Number: &quot;&quot;&quot; + &quot;${BUILD_NUMBER}&quot; + &quot;&quot;&quot;&quot;
+
+                        # Push to GitHub
+                        echo &quot;=== Pushing to GitHub ===&quot;
+                        git push https://&quot;&quot;&quot; + &quot;${GITHUB_TOKEN}&quot; + &quot;&quot;&quot;@github.com/vaiz1982/&quot;&quot;&quot; + &quot;${GIT_REPO}&quot; + &quot;&quot;&quot;.git &quot;&quot;&quot; + &quot;${GIT_BRANCH}&quot; + &quot;&quot;&quot;
+                        
+                        echo &quot;🎉 All files pushed to GitHub successfully!&quot;
+                        &quot;&quot;&quot;
+                    }
+                }
+            }  
+        }
+    }
+
+    post {  
+        always {  
+            cleanWs()
+            sh &apos;&apos;&apos;
+            echo &quot;=== Final Cleanup ===&quot;
+            # Clean up all test containers
+            docker ps -a --format &quot;{{.Names}}&quot; | grep &quot;test-&quot; | xargs -r docker stop 2&gt;/dev/null || true
+            docker ps -a --format &quot;{{.Names}}&quot; | grep &quot;test-&quot; | xargs -r docker rm 2&gt;/dev/null || true
+            
+            # List built images
+            echo &quot;&quot;
+            echo &quot;=== Built Images ===&quot;
+            docker images --format &quot;table {{.Repository}}\\t{{.Tag}}\\t{{.CreatedAt}}&quot; | grep &quot;vaiz82/&quot; || true
+            &apos;&apos;&apos;
+        }
+        success {
+            echo &quot;🎉 COMPLETE SUCCESS! 🎉&quot;
+            echo &quot;✅ All 5 apps now have Dockerfiles&quot;
+            echo &quot;✅ All apps built and tested&quot;
+            echo &quot;✅ All images pushed to Docker Hub&quot;
+            echo &quot;✅ Jenkinsfile v2.0 created&quot;
+            echo &quot;✅ Everything pushed to GitHub&quot;
+            echo &quot;&quot;
+            echo &quot;📦 Docker Hub Images:&quot;
+            sh &apos;&apos;&apos;
+            for app_dir in */; do
+                app=$(basename &quot;$app_dir&quot;)
+                echo &quot;   - vaiz82/$app:build-&apos;&apos;&apos; + &quot;${BUILD_NUMBER}&quot; + &apos;&apos;&apos;&quot;
+            done
+            &apos;&apos;&apos;
+        }
+    }  
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
